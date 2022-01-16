@@ -85,15 +85,21 @@ def get_balances(first_asset, second_asset):
         "timestamp": int(round(time.time() * 1000))
     }
     get_account_result = binanceus_request(uri_path, data, api_key, secret_key)
-    for asset in get_account_result.json()['balances']:
-        if asset['asset'] == first_asset:
-            first_asset_balance = float(asset['free'])
-        elif asset['asset'] == second_asset:
-            second_asset_balance = float(asset['free'])
-    balance_data = {
-        'first_asset': first_asset_balance,
-        'second_asset': second_asset_balance
-    }
+    try:
+        for asset in get_account_result.json()['balances']:
+            if asset['asset'] == first_asset:
+                first_asset_balance = float(asset['free'])
+            elif asset['asset'] == second_asset:
+                second_asset_balance = float(asset['free'])
+        balance_data = {
+            'first_asset': first_asset_balance,
+            'second_asset': second_asset_balance
+        }
+    except:
+        balance_data = {
+            'first_asset': 0.0,
+            'second_asset': 0.0
+        }
     return balance_data
 
 def trade(amount, side, symbol):
@@ -114,13 +120,13 @@ def wait_for_z_normalization(sign, first_asset_symbol, second_asset_symbol):
         while z_score > 0.5:
             z_score = get_trade_info()
             print("Current Z-Score: " + str(z_score))
-            time.sleep(1000)
+            time.sleep(5)
         return
     else:
         while z_score < -0.5:
             z_score = get_trade_info()
             print("Current Z-Score: " + str(z_score))
-            time.sleep(1000)
+            time.sleep(5)
         return
 
 def z_based_trade(sign, first_asset_symbol, second_asset_symbol):
