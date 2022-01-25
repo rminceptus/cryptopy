@@ -334,9 +334,14 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
             blend_ma = df['average'].rolling(40).mean()
 
             signal = get_latest_signal(asset)
+            mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1,0]
+            latest_mfi = normalize_series(pd.DataFrame(get_latest_mfi(asset, '1m', '1000')))
+            normalized_mfi = latest_mfi.dropna().iloc[-1,0]
             print('SIGNAL (' + asset + '): ' + str(round(signal,5)))
+            print(' - MFI: ' + str(round(mfi,3)))
+            print(' - NORM(MFI): ' + str(round(normalized_mfi,3)))
             print()
-            if float(signal) > high_signal and float(normalized_minute_mfi.dropna().iloc[-1]) > high_mfi:
+            if float(signal) > high_signal and float(normalized_mfi) > high_mfi:
                 potential_trades[asset] = float(signal)
                 print(asset + ' ADDED TO POTENTIAL TRADES')
                 print()
@@ -369,17 +374,22 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
     symbol = asset_to_trade + 'USDT'
     resp = trade(amount=float(asset_to_buy), side='BUY', symbol=symbol)
     if resp.status_code == 200:
-        print('SOLD ' + str(float(USDT_balance) / (float(asset_price)*1.03)) + ' USDT FOR ' + str(asset_to_trade))
+        print('SOLD ' + str((float(USDT_balance) / (float(asset_price)*1.03))*asset_price) + ' USDT FOR ' + str(asset_to_trade))
         signal = get_latest_signal(asset_to_trade)
+        mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1,0]
+        latest_mfi = normalize_series(pd.DataFrame(get_latest_mfi(asset, '1m', '1000')))
+        normalized_mfi = latest_mfi.dropna().iloc[-1,0]
         logs['asset'] = asset_to_trade
         logs['price bought'] = float(asset_price)
         logs['time bought'] = datetime.datetime.now()
         logs['signal'] = signal
+        logs['mfi bought'] = mfi
+        logs['normalized mfi bought'] = normalized_mfi
     else:
         print(resp.json())
     normalized_minute_mfi = normalize_series(minute_mfi)
     normalized_minute_mfi = minute_mfi.dropna().iloc[-1,0]
-    starting_value = asset_to_buy
+    starting_value = asset_to_buy * float(get_current_price(asset_to_trade + 'USDT'))
     while float(signal) > low_signal and float(normalized_minute_mfi) > low_mfi:
 
         signal = get_latest_signal(asset_to_trade)
@@ -393,12 +403,11 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
         else:
             print(bcolors.FAIL + 'CURRENT VALUE: ' + str(round(value,3)) + bcolors.ENDC)
         print('CURRENT SIGNAL: ' + str(round(signal,4)))
-        minute_mfi = pd.DataFrame(get_latest_mfi(asset_to_trade, interval='1m', limit='1000'))
-        normalized_minute_mfi = normalize_series(minute_mfi)
-        normalized_minute_mfi = minute_mfi.dropna().iloc[-1,0]
-        current_mfi = minute_mfi.dropna().iloc[-1,0]
-        print('CURRENT MFI: ' + str(round(current_mfi,3)))
-        print('CURRENT NORMALIZED MFI: ' + str(round(normalized_minute_mfi,3)))
+        mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1,0]
+        latest_mfi = normalize_series(pd.DataFrame(get_latest_mfi(asset, '1m', '1000')))
+        normalized_mfi = latest_mfi.dropna().iloc[-1,0]
+        print('CURRENT MFI: ' + str(round(mfi,3)))
+        print('CURRENT NORMALIZED MFI: ' + str(round(normalized_mfi,3)))
         signal = get_latest_signal(asset_to_trade)
 
         time.sleep(30)
@@ -408,8 +417,15 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
     asset_price = get_current_price(asset_to_trade+'USDT')
     logs['price sold'] = float(asset_price)
     logs['time sold'] = datetime.datetime.now()
+    logs['mfi sold'] = mfi
+    logs['normalized mfi sold'] = normalized_mfi
     trade(amount=traded_asset_balance, side='SELL', symbol=asset_to_trade+'USDT')
     print('BOUGHT USDT FOR ' + str(traded_asset_balance) + ' ' + asset_to_trade)
+    profit_on_trade = starting_value - value
+    if profit_on_trade < 0.0:
+        print(bcolors.FAIL + 'LOSS ON TRADE: ' + str(round(profit_on_trade,3)) + bcolors.ENDC)
+    else:
+        print(bcolors.OKGREEN + 'PROFIT ON TRADE: ' + str(round(profit_on_trade,3)) + bcolors.ENDC)
     return logs
 
 
@@ -451,9 +467,9 @@ def generate_chart(asset):
     account_value = float(price) * balance_data
 
     signal = blend_ma.dropna() - minute_price_ma.dropna()
-    mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1]
+    mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1,0]
     latest_mfi = normalize_series(pd.DataFrame(get_latest_mfi(asset, '1m', '1000')))
-    normalized_mfi = latest_mfi.dropna().iloc[-1]
+    normalized_mfi = latest_mfi.dropna().iloc[-1,0]
     print('MFI: ' + str(round(mfi,3)))
     print('NORMALIZED MFI: ' + str(round(normalized_mfi,3)))
     print('SIGNAL: ' + str(round(signal.dropna().iloc[-1],3)))
