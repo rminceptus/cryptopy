@@ -15,8 +15,8 @@ import requests
 
 warnings.filterwarnings('ignore')
 api_url = "https://api.binance.us"
-api_key='<YOUR API KEY>'
-secret_key='<YOUR API SECRET>'
+api_key='YOUR API KEY'
+secret_key='YOUR API SECRET'
 
 class bcolors:
     HEADER = '\033[95m'
