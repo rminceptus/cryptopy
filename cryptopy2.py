@@ -298,7 +298,7 @@ def get_latest_signal(asset):
 
 def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
     high_volume_assets = ['BNB', 'LTC', 'XLM', 'AAVE', 'XLM', 'GRT', 'LINK', 'OXT', 'ADA', 'ATOM', 'CRV', 'ALGO',
-        'BAT', 'NEO', 'QTUM', 'EOS', 'FTM']
+        'BAT', 'NEO', 'QTUM', 'FTM']
     high_volume_assets.append('UNI')
     high_volume_assets.append('ETH')
     high_volume_assets.append('BTC')
@@ -337,7 +337,10 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
             mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1,0]
             latest_mfi = normalize_series(pd.DataFrame(get_latest_mfi(asset, '1m', '1000')))
             normalized_mfi = latest_mfi.dropna().iloc[-1,0]
-            print('SIGNAL (' + asset + '): ' + str(round(signal,5)))
+            if float(signal) > high_signal:
+                print(bcolors.OKGREEN + 'SIGNAL (' + asset + '): ' + str(round(signal,5)) + bcolors.ENDC)
+            else:
+                print('SIGNAL (' + asset + '): ' + str(round(signal,5)) + bcolors.ENDC)
             print(' - MFI: ' + str(round(mfi,3)))
             print(' - NORM(MFI): ' + str(round(normalized_mfi,3)))
             print()
@@ -372,25 +375,29 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
     asset_to_buy = (float(USDT_balance) / (float(asset_price)*1.015))
     print('ATTEMPTING TO BUY ' + str(asset_to_buy) + ' ' + str(asset_to_trade))
     symbol = asset_to_trade + 'USDT'
-    resp = trade(amount=float(asset_to_buy), side='BUY', symbol=symbol)
-    if resp.status_code == 200:
-        print('SOLD ' + str((float(USDT_balance) / (float(asset_price)*1.03))*asset_price) + ' USDT FOR ' + str(asset_to_trade))
-        signal = get_latest_signal(asset_to_trade)
-        mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1,0]
-        latest_mfi = normalize_series(pd.DataFrame(get_latest_mfi(asset, '1m', '1000')))
-        normalized_mfi = latest_mfi.dropna().iloc[-1,0]
-        logs['asset'] = asset_to_trade
-        logs['price bought'] = float(asset_price)
-        logs['time bought'] = datetime.datetime.now()
-        logs['signal'] = signal
-        logs['mfi bought'] = mfi
-        logs['normalized mfi bought'] = normalized_mfi
-    else:
-        print(resp.json())
+    error = True
+    while error:
+        resp = trade(amount=float(asset_to_buy), side='BUY', symbol=symbol)
+        if resp.status_code == 200:
+            print('SOLD ' + 'USDT FOR ' + str(asset_to_trade))
+            signal = get_latest_signal(asset_to_trade)
+            mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1,0]
+            latest_mfi = normalize_series(pd.DataFrame(get_latest_mfi(asset, '1m', '1000')))
+            normalized_mfi = latest_mfi.dropna().iloc[-1,0]
+            logs['asset'] = asset_to_trade
+            logs['price bought'] = float(asset_price)
+            logs['time bought'] = datetime.datetime.now()
+            logs['signal'] = signal
+            logs['mfi bought'] = mfi
+            logs['normalized mfi bought'] = normalized_mfi
+            error = False
+        else:
+            print(resp.json())
+            print('RETRYING...')
     normalized_minute_mfi = normalize_series(minute_mfi)
     normalized_minute_mfi = minute_mfi.dropna().iloc[-1,0]
     starting_value = asset_to_buy * float(get_current_price(asset_to_trade + 'USDT'))
-    while float(signal) > low_signal and float(normalized_minute_mfi) > low_mfi:
+    while float(signal) > low_signal and float(normalized_mfi) > low_mfi:
 
         signal = get_latest_signal(asset_to_trade)
         asset_price = get_current_price(asset_to_trade+'USDT')
@@ -412,16 +419,15 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
 
         time.sleep(30)
 
-    balances = get_balances()
-    traded_asset_balance = balances[asset_to_trade]
     asset_price = get_current_price(asset_to_trade+'USDT')
     logs['price sold'] = float(asset_price)
     logs['time sold'] = datetime.datetime.now()
     logs['mfi sold'] = mfi
     logs['normalized mfi sold'] = normalized_mfi
-    trade(amount=traded_asset_balance, side='SELL', symbol=asset_to_trade+'USDT')
-    print('BOUGHT USDT FOR ' + str(traded_asset_balance) + ' ' + asset_to_trade)
-    profit_on_trade = starting_value - value
+    trade(amount=float(asset_to_buy), side='SELL', symbol=asset_to_trade+'USDT')
+    print('BOUGHT USDT FOR ' + str(asset_to_buy) + ' ' + asset_to_trade)
+    profit_on_trade = float(starting_value) - (float(asset_to_buy)*float(asset_price))
+    print()
     if profit_on_trade < 0.0:
         print(bcolors.FAIL + 'LOSS ON TRADE: ' + str(round(profit_on_trade,3)) + bcolors.ENDC)
     else:
@@ -526,8 +532,8 @@ if selection == '1':
     print('SELECT A LOW/HIGH MFI AND SIGNAL')
     print(' - SUGGESTED LOW SIGNAL: 0.05')
     print(' - SUGGESTED HIGH SIGNAL: 0.07')
-    print(' - SUGGESTED LOW NORM(MFI): 0.45')
-    print(' - SUGGESTED HIGH NORM(MFI): 0.6')
+    print(' - SUGGESTED LOW NORM(MFI): 0.25')
+    print(' - SUGGESTED HIGH NORM(MFI): 0.55')
     print()
     low_signal = input('LOW SIGNAL: ')
     high_signal = input('HIGH SIGNAL: ')
@@ -538,7 +544,8 @@ if selection == '1':
     low_mfi = float(low_mfi)
     high_mfi = float(high_mfi)
     trading = True
-    run_trade_cycle(low_mfi, high_mfi, low_signal, high_signal)
+    while trading:
+        run_trade_cycle(low_mfi, high_mfi, low_signal, high_signal)
 elif selection == '2':
     asset = input('ASSET TO ANALYZE: ')
     print()
@@ -549,7 +556,7 @@ elif selection == '3':
 
     li = []
 
-    if len(li) > 1:
+    if len(all_files) > 1:
         for filename in all_files:
             df = pd.read_csv(filename, index_col=None, header=0)
             li.append(df)
@@ -557,9 +564,4 @@ elif selection == '3':
         frame.to_csv('data/trades_data.csv')
         print('LOGS WRITTEN TO DATA FOLDER')
     else:
-        df = pd.DataFrame()
-        for filename in all_files:
-            df = pd.read_csv(filename, index_col=None, header=0)
-            print(df)
-            df.to_csv('data/trades_data.csv')
-            print('LOGS WRITTEN TO DATA FOLDER')
+        print('NOT ENOUGH DATA TO WRITE')
