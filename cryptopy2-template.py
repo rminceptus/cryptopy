@@ -297,7 +297,7 @@ def get_latest_signal(asset):
 
 
 def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
-    high_volume_assets = ['BNB', 'LTC', 'XLM', 'AAVE', 'XLM', 'GRT', 'LINK', 'OXT', 'ADA', 'ATOM', 'CRV', 'ALGO',
+    high_volume_assets = ['BNB', 'LTC', 'XLM', 'AAVE', 'XLM', 'GRT', 'LINK', 'OXT', 'ADA', 'CRV', 'ALGO',
         'BAT', 'NEO', 'QTUM', 'FTM']
     high_volume_assets.append('UNI')
     high_volume_assets.append('ETH')
@@ -309,6 +309,7 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
     empty = True
     asset_to_trade = ''
     to_match = 0
+    mfi_roc = 0
     while empty:
         for asset in high_volume_assets:
 
@@ -337,14 +338,18 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
             mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1,0]
             latest_mfi = normalize_series(pd.DataFrame(get_latest_mfi(asset, '1m', '1000')))
             normalized_mfi = latest_mfi.dropna().iloc[-1,0]
+
+            mfi_roc = float(((normalized_minute_mfi.dropna().iloc[-1,0] + normalized_minute_mfi.dropna().iloc[-2,0]) / 2) / ((normalized_minute_mfi.dropna().iloc[-3,0] + normalized_minute_mfi.dropna().iloc[-4,0]) / 2))
+
             if float(signal) > high_signal:
                 print(bcolors.OKGREEN + 'SIGNAL (' + asset + '): ' + str(round(signal,5)) + bcolors.ENDC)
             else:
                 print('SIGNAL (' + asset + '): ' + str(round(signal,5)) + bcolors.ENDC)
             print(' - MFI: ' + str(round(mfi,3)))
             print(' - NORM(MFI): ' + str(round(normalized_mfi,3)))
+            print(' - MFI ROC: ' + str(round(mfi_roc,3)))
             print()
-            if float(signal) > high_signal and float(normalized_mfi) > high_mfi:
+            if float(signal) > high_signal and float(normalized_mfi) > high_mfi and mfi_roc > 1:
                 potential_trades[asset] = float(signal)
                 print(asset + ' ADDED TO POTENTIAL TRADES')
                 print()
@@ -390,6 +395,7 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
             logs['signal'] = signal
             logs['mfi bought'] = mfi
             logs['normalized mfi bought'] = normalized_mfi
+            logs['mfi roc bought'] = mfi_roc
             error = False
         else:
             print(resp.json())
@@ -413,8 +419,10 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
         mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1,0]
         latest_mfi = normalize_series(pd.DataFrame(get_latest_mfi(asset, '1m', '1000')))
         normalized_mfi = latest_mfi.dropna().iloc[-1,0]
+        mfi_roc = ((latest_mfi.dropna().iloc[-1,0] + latest_mfi.dropna().iloc[-2,0]) / 2) / ((latest_mfi.dropna().iloc[-3,0] + latest_mfi.dropna().iloc[-4,0]) / 2)
         print('CURRENT MFI: ' + str(round(mfi,3)))
         print('CURRENT NORMALIZED MFI: ' + str(round(normalized_mfi,3)))
+        print('CURRENT MFI ROC: ' + str(round(mfi_roc,3)))
         signal = get_latest_signal(asset_to_trade)
 
         time.sleep(30)
@@ -424,6 +432,7 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
     logs['time sold'] = datetime.datetime.now()
     logs['mfi sold'] = mfi
     logs['normalized mfi sold'] = normalized_mfi
+    logs['mfi roc sold'] = mfi_roc
     trade(amount=float(asset_to_buy), side='SELL', symbol=asset_to_trade+'USDT')
     print('BOUGHT USDT FOR ' + str(asset_to_buy) + ' ' + asset_to_trade)
     profit_on_trade = float(starting_value) - (float(asset_to_buy)*float(asset_price))
