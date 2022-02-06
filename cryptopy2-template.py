@@ -14,9 +14,10 @@ import pyfiglet
 import requests
 
 warnings.filterwarnings('ignore')
+
 api_url = "https://api.binance.us"
-api_key='YOUR API KEY'
-secret_key='YOUR API SECRET'
+api_key='<YOUR_API_KEY>'
+secret_key='<YOUR_API_SECRET>'
 
 class bcolors:
     HEADER = '\033[95m'
@@ -296,6 +297,102 @@ def get_latest_signal(asset):
     return signal.dropna().iloc[-1]
 
 
+def find_available_assets():
+    high_volume_assets = ['BNB', 'LTC', 'XLM', 'AAVE', 'XLM', 'GRT', 'LINK', 'OXT', 'ADA', 'CRV', 'ALGO',
+        'BAT', 'NEO', 'QTUM', 'FTM', 'UNI', 'ETH', 'BTC']
+    available_assets = []
+    asset_signal_dict = {}
+    for asset in high_volume_assets:
+        signal = float(get_latest_signal(asset))
+        print(asset)
+        print('SIGNAL: ' + str(round(signal,3)) + '\n')
+        if signal > 0.07:
+            available_assets+=asset
+        asset_signal_dict[asset] = signal
+    if len(available_assets) == 0:
+        available_assets = sorted(asset_signal_dict, key=asset_signal_dict.get)[0]
+    return available_assets
+
+
+def get_balance(asset):
+    uri_path = "/api/v3/account"
+    data = {
+        "timestamp": int(round(time.time() * 1000))
+    }
+    get_account_result = binanceus_request(uri_path, data, api_key, secret_key)
+    try:
+        for account_asset in get_account_result.json()['balances']:
+            if account_asset['asset'] == asset:
+                first_asset_balance = float(account_asset['free']) + float(account_asset['locked'])
+        balance_data = first_asset_balance
+    except:
+        balance_data = 0.0
+    return balance_data
+
+
+def evaluate_trade_distribution():
+    assets = find_available_assets()
+    USDT_balance = get_balance('USDT')
+    if len(assets) > 0:
+        distribution = USDT_balance / len(assets)
+    else:
+        distribution = 0
+    return distribution
+
+
+def make_trades():
+    distro = evaluate_trade_distribution()
+    while distro == 0:
+        print('NO CURRENT TRADES\n')
+        print('EVALUATING...')
+        time.sleep(30)
+        distro = evaluate_trade_distribution()
+    assets = find_available_assets()
+    for asset in assets:
+        print('ATTEMPTING TO TRADE ' + 'USDT' + ' FOR ' + asset)
+        result = trade(amount=distro, side='BUY', symbol=asset+'USDT')
+        if result.status_code == 200:
+            asset_balance = get_balance(asset)
+            print('TRADED ' + str(round(distro,3)) + ' USDT FOR ' + str(round(asset_balance,3)) + asset)
+            return distro
+        else:
+            print(result.json())
+            exit
+        
+
+def wait_for_signals(distro):
+    og_balances = get_balances()
+    balances = []
+    for asset in og_balances.keys:
+        price = float(get_current_price(asset+'USDT'))
+        if price > 10.0:
+            balances += asset
+    while len(balances) > 0:
+        for asset in balances:
+            signal = float(get_latest_signal(asset))
+            if signal < 0.05:
+                asset_balance = get_balance(asset)
+                result = trade(amount=distro, side='SELL', symbol=asset+'USDT')
+                if result.status_code == 200:
+                    USDT_balance = get_balance('USDT')
+                    print('TRADED ' + str(round(asset_balance,3)) + asset + ' FOR ' + str(round(USDT_balance,3)) + ' USDT')
+                else:
+                    print(result.json())
+                    exit
+        og_balances = get_balances()
+        balances = []
+        for asset in og_balances.keys:
+            price = float(get_current_price(asset+'USDT'))
+            if price > 10.0:
+                balances += asset
+
+def distributed_trade_cycle():
+    trading = True
+    while trading:
+        distro = make_trades()
+        wait_for_signals(distro)
+
+
 def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
     high_volume_assets = ['BNB', 'LTC', 'XLM', 'AAVE', 'XLM', 'GRT', 'LINK', 'OXT', 'ADA', 'CRV', 'ALGO',
         'BAT', 'NEO', 'QTUM', 'FTM']
@@ -382,9 +479,9 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
     symbol = asset_to_trade + 'USDT'
     error = True
     while error:
-        resp = trade(amount=float(asset_to_buy), side='BUY', symbol=symbol)
+        resp = trade(amount=float(USDT_balance)/1.1, side='BUY', symbol=symbol)
         if resp.status_code == 200:
-            print('SOLD ' + 'USDT FOR ' + str(asset_to_trade))
+            print('SOLD ' + 'USDT FOR ' + str(round(float(USDT_balance)/1.1,3)))
             signal = get_latest_signal(asset_to_trade)
             mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1,0]
             latest_mfi = normalize_series(pd.DataFrame(get_latest_mfi(asset, '1m', '1000')))
@@ -433,15 +530,19 @@ def trade_cycle(low_mfi, high_mfi, low_signal, high_signal):
     logs['mfi sold'] = mfi
     logs['normalized mfi sold'] = normalized_mfi
     logs['mfi roc sold'] = mfi_roc
-    trade(amount=float(asset_to_buy), side='SELL', symbol=asset_to_trade+'USDT')
-    print('BOUGHT USDT FOR ' + str(asset_to_buy) + ' ' + asset_to_trade)
-    profit_on_trade = float(starting_value) - (float(asset_to_buy)*float(asset_price))
-    print()
-    if profit_on_trade < 0.0:
-        print(bcolors.FAIL + 'LOSS ON TRADE: ' + str(round(profit_on_trade,3)) + bcolors.ENDC)
+    resp = trade(amount=float(asset_to_buy), side='SELL', symbol=asset_to_trade+'USDT')
+    if resp.status_code == 200:
+        print('BOUGHT USDT FOR ' + str(asset_to_buy) + ' ' + asset_to_trade)
+        profit_on_trade = float(starting_value) - (float(asset_to_buy)*float(asset_price))
+        print()
+        if profit_on_trade < 0.0:
+            print(bcolors.FAIL + 'LOSS ON TRADE: ' + str(round(profit_on_trade,3)) + bcolors.ENDC)
+        else:
+            print(bcolors.OKGREEN + 'PROFIT ON TRADE: ' + str(round(profit_on_trade,3)) + bcolors.ENDC)
+        return logs
     else:
-        print(bcolors.OKGREEN + 'PROFIT ON TRADE: ' + str(round(profit_on_trade,3)) + bcolors.ENDC)
-    return logs
+        print(resp.json())
+    
 
 
 def generate_chart(asset):
@@ -485,12 +586,26 @@ def generate_chart(asset):
     mfi = pd.DataFrame(get_latest_mfi(asset, '1m', '1000')).dropna().iloc[-1,0]
     latest_mfi = normalize_series(pd.DataFrame(get_latest_mfi(asset, '1m', '1000')))
     normalized_mfi = latest_mfi.dropna().iloc[-1,0]
+    mfi_roc = ((latest_mfi.dropna().iloc[-1,0] + latest_mfi.dropna().iloc[-2,0]) / 2) / ((latest_mfi.dropna().iloc[-3,0] + latest_mfi.dropna().iloc[-4,0]) / 2)
     print('MFI: ' + str(round(mfi,3)))
     print('NORMALIZED MFI: ' + str(round(normalized_mfi,3)))
-    print('SIGNAL: ' + str(round(signal.dropna().iloc[-1],3)))
-    print('PRICE: ' + str(minute_close_prices['Close Price'].astype(float).iloc[-1]))
+    if mfi_roc > 1.0:
+        print(bcolors.OKGREEN + 'MFI ROC: ' + str(round(mfi_roc,3)) + bcolors.ENDC)
+    else:
+        print('MFI ROC: ' + str(round(mfi_roc,3)))
+    if signal.dropna().iloc[-1] > 0.0:
+        print(bcolors.OKGREEN + 'SIGNAL: ' + str(round(signal.dropna().iloc[-1],3)) + bcolors.ENDC)
+    else:
+        print('SIGNAL: ' + str(round(signal.dropna().iloc[-1],3)))
+    if minute_close_prices['Close Price'].astype(float).iloc[-1] > minute_close_prices['Close Price'].astype(float).iloc[-2]:
+        print(bcolors.OKGREEN + 'PRICE: ' + str(minute_close_prices['Close Price'].astype(float).iloc[-1]) + bcolors.ENDC)
+    else:
+        print('PRICE: ' + str(minute_close_prices['Close Price'].astype(float).iloc[-1]))
     print('BALANCE: ' + str(round(balance_data,3)))
-    print('VALUE: ' + str(round(account_value,2)))
+    if minute_close_prices['Close Price'].astype(float).iloc[-1] > minute_close_prices['Close Price'].astype(float).iloc[-2]:
+        print(bcolors.OKGREEN + 'VALUE: ' + str(round(account_value,2)) + bcolors.ENDC)
+    else:
+        print('VALUE: ' + str(round(account_value,2)))
         
     plt.style.use('fivethirtyeight')
     plt.figure()
@@ -534,6 +649,7 @@ print()
 print(' (1) TRADE')
 print(' (2) CHART')
 print(' (3) ANALYZE')
+print(' (4) DISTRIBUTED TRADE')
 print()
 selection = input('SELECT A MODE: ')
 
@@ -574,3 +690,5 @@ elif selection == '3':
         print('LOGS WRITTEN TO DATA FOLDER')
     else:
         print('NOT ENOUGH DATA TO WRITE')
+elif selection == '4':
+    distributed_trade_cycle()
